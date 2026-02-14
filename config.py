@@ -1,0 +1,1 @@
+OCR_API = "https://diwakarbasnet--paddleocr-vl-fastapi-app.modal.run/predict"
