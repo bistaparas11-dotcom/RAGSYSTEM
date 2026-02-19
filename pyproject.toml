@@ -5,7 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "pydantic-settings>=2.13.0",
     "pymupdf>=1.27.1",
+    "sec-api>=1.0.32",
 ]
 
 [dependency-groups]
