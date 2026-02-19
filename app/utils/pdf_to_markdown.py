@@ -7,15 +7,15 @@ import time
 import urllib.request
 import urllib.error
 from io import BytesIO
-from config import OCR_API
+from ..config import settings
 
 
-def process_pdf(pdf_path, output_md_path=None, prompt="ocr", dpi=300):
+def process_pdf(pdf_path, output_md_path, prompt="ocr", dpi=300):
     """
     Processes a PDF file by converting pages to images and calling the OCR API.
     """
     try:
-        import fitz  # PyMuPDF
+        import fitz
     except ImportError:
         print("Error: PyMuPDF (fitz) is not installed.")
         sys.exit(1)
@@ -60,7 +60,7 @@ def process_pdf(pdf_path, output_md_path=None, prompt="ocr", dpi=300):
         try:
             json_data = json.dumps(payload).encode('utf-8')
             req = urllib.request.Request(
-                OCR_API,
+                settings.OCR_API_URL,
                 data=json_data,
                 headers={'Content-Type': 'application/json'}
             )

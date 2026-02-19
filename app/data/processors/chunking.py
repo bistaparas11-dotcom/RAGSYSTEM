@@ -20,7 +20,6 @@ class Chunk:
     content_type: ContentType
     section: str              # e.g., "Item 1. Business"
     sub_section: Optional[str]
-    page_range: tuple
     summary: Optional[str]
     entities: List[Dict]      # Extracted entities
     parent_chunk_id: Optional[str]  # For hierarchical relationships
