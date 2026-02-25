@@ -1,37 +1,48 @@
-import re
-from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
+from app.utils.llm_utils import generate_summary
+import re
+import hashlib
+from enum import Enum
 
 
-class ContentType(Enum):
-    METADATA = "metadata"
-    SECTION_HEADER = "section_header"
-    TEXT = "text"
-    TABLE = "table"
-    FINANCIAL_NOTE = "financial_note"
-    RISK_FACTOR = "risk_factor"
+class ChunkType(Enum):
+    DOCUMENT = "doc"
+    SECTION  = "sec"
+    TEXT     = "txt"
+    TABLE    = "tbl"
 
 
 @dataclass
 class Chunk:
-    id: str
-    content: str
-    content_type: ContentType
-    section: str              # e.g., "Item 1. Business"
-    sub_section: Optional[str]
-    summary: Optional[str]
-    entities: List[Dict]      # Extracted entities
-    parent_chunk_id: Optional[str]  # For hierarchical relationships
-    child_chunk_ids: List[str]
-    metadata: Dict[str, Any]
-    embedding_vector: Optional[List[float]] = None
+    id:              str
+    type:            ChunkType
+    section:         str
+    content:         str
+    parent_id:       Optional[str]
+    child_chunk_ids: List[str] = field(default_factory=list)
+    summary:         Optional[str] = None
+    metadata:        Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "type": self.type.value,
+            "section": self.section,
+            "content": self.content,
+            "parent_id": self.parent_id,
+            "child_chunk_ids": self.child_chunk_ids,
+            "summary": self.summary,
+            "metadata": self.metadata
+        }
 
 
-class SECHierarchicalChunker:
-    def __init__(self):
-        # SEC 10-K standard sections
-        self.section_patterns = {
+class SECChunker:
+    """
+    Hierarchical SEC filing chunker.
+    """
+    # SEC 10-K standard sections
+    SECTION_PATTERNS = {
             "Item 1": r"ITEM\s+1\.?\s*BUSINESS",
             "Item 1A": r"ITEM\s+1A\.?\s*RISK\s+FACTORS",
             "Item 1B": r"ITEM\s+1B\.?\s*UNRESOLVED\s+STAFF\s+COMMENTS",
@@ -54,195 +65,260 @@ class SECHierarchicalChunker:
             "Item 15": r"ITEM\s+15\.?\s*EXHIBITS\s+AND\s+FINANCIAL\s+STATEMENT\s+SCHEDULES"
         }
 
-    def parse_markdown(self, markdown_text: str,
-                       filing_metadata: Dict) -> List[Chunk]:
-        """Parse markdown into hierarchical chunks"""
-        chunks = []
+    TABLE_PATTERN = r"\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n)+"
 
-        # Extract document-level metadata chunk
-        meta_chunk = self._create_metadata_chunk(filing_metadata)
-        chunks.append(meta_chunk)
+    def __init__(self, chunk_size: int = 1500, overlap: int = 150):
+        self.chunk_size = chunk_size
+        self.overlap    = overlap
 
-        # Split by sections
-        sections = self._split_by_sections(markdown_text)
+    def chunk_file(self, file_path: str, meta: Dict[str, Any]) -> List[Chunk]:
+        """Read a file path and then chunk its contents."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return self.chunk(content, meta)
 
-        for section_name, section_content in sections.items():
-            # Create section-level chunk
-            section_chunk = self._create_section_chunk(
-                section_name,
-                section_content,
-                parent_id=meta_chunk.id
-            )
-            chunks.append(section_chunk)
+    def chunk(self, markdown: str, meta: Dict[str, Any]) -> List[Chunk]:
+        """Parse a markdown SEC filing into a list of Chunks."""
+        filing_id = meta["filing_id"]
+        chunks: List[Chunk] = []
 
-            # Further split into sub-chunks based on content type
-            sub_chunks = self._split_section_content(
-                section_content,
-                section_name,
-                parent_id=section_chunk.id
-            )
-            chunks.extend(sub_chunks)
+        # Level 0 – document root
+        doc = self._doc_chunk(filing_id, meta)
+        chunks.append(doc)
+
+        # Level 1 + 2 – sections and their children
+        for section, content in self._split_sections(markdown).items():
+            sec   = self._section_chunk(filing_id, section, content, doc.id)
+            doc.child_chunk_ids.append(sec.id)
+            
+            texts = self._text_chunks(filing_id, section, content, sec.id)
+            for t in texts:
+                t.summary = generate_summary(t.content)
+                sec.child_chunk_ids.append(t.id)
+                
+            tables = self._table_chunks(filing_id, section, content, sec.id)
+            for tbl in tables:
+                tbl.summary = generate_summary(tbl.content)
+                sec.child_chunk_ids.append(tbl.id)
+                
+            chunks += [sec, *texts, *tables]
 
         return chunks
 
-    def _split_section_content(
-            self, content: str, section_name: str, parent_id: str) -> List[Chunk]:
-        """Intelligent splitting based on content patterns"""
+    # ------------------------------------------------------------------ #
+    # ID helpers                                                         #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        """
+        Example: 'Item 1A' -> 'item_1a'
+        """
+        return re.sub(r"\s+", "_", text.strip().lower())
+
+    @staticmethod
+    def _short_hash(text: str) -> str:
+        """
+        Create unique hash for the text 
+        """
+        return hashlib.md5(text.encode()).hexdigest()[:6]
+
+    def _make_id(self, chunk_type: ChunkType, filing_id: str,
+                 *parts: str) -> str:
+        """
+        Produces readable, predictable IDs:
+            doc_GOOGL10K2024
+            sec_GOOGL10K2024_item_1a
+            txt_GOOGL10K2024_item_7_0
+            tbl_GOOGL10K2024_item_8_2
+        """
+        segments = [chunk_type.value, filing_id] + [p for p in parts if p]
+        return "_".join(segments)
+
+    # ------------------------------------------------------------------ #
+    # Level 0 – document                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _doc_chunk(self, filing_id: str, meta: Dict[str, Any]) -> Chunk:
+        return Chunk(
+            id        = self._make_id(ChunkType.DOCUMENT, filing_id),
+            type      = ChunkType.DOCUMENT,
+            section   = "document",
+            content   = (
+                f"{meta.get('company_name')} | {meta.get('filing_type')} | "
+                f"CIK {meta.get('cik')} | FY {meta.get('fiscal_year')} | "
+                f"Filed {meta.get('filing_date')}"
+            ),
+            parent_id = None,
+            metadata  = {k: meta[k] for k in
+                         ("company_name", "cik", "filing_type",
+                          "filing_date", "fiscal_year") if k in meta},
+        )
+
+    # ------------------------------------------------------------------ #
+    # Level 1 – sections                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _section_chunk(self, filing_id: str, section: str,
+                       content: str, parent_id: str) -> Chunk:
+        slug = self._slug(section)
+        return Chunk(
+            id        = self._make_id(ChunkType.SECTION, filing_id, slug),
+            type      = ChunkType.SECTION,
+            section   = section,
+            content   = content[:500],   # preview only – full text lives in txt chunks
+            parent_id = parent_id,
+            metadata  = {
+                "char_count":   len(content),
+                "has_tables":   bool(re.search(self.TABLE_PATTERN, content)),
+                "is_risk":      "1a" in slug or "risk" in slug,
+            },
+        )
+
+    # ------------------------------------------------------------------ #
+    # Level 2 – text chunks (sliding window)                             #
+    # ------------------------------------------------------------------ #
+
+    def _text_chunks(self, filing_id: str, section: str,
+                     content: str, parent_id: str) -> List[Chunk]:
+        # Strip tables so text chunks contain only prose
+        prose = re.sub(self.TABLE_PATTERN, "", content).strip()
+        slug  = self._slug(section)
+
+        sentences = re.split(r"(?<=[.!?])\s+", prose)
+        windows   = self._sliding_windows(sentences)
+
+        return [
+            Chunk(
+                id        = self._make_id(ChunkType.TEXT, filing_id, slug, str(i)),
+                type      = ChunkType.TEXT,
+                section   = section,
+                content   = window,
+                parent_id = parent_id,
+                metadata  = {"chunk_index": i},
+            )
+            for i, window in enumerate(windows)
+            if len(window) >= 100  # skip micro-chunks
+        ]
+
+    def _sliding_windows(self, sentences: List[str]) -> List[str]:
+        """Build overlapping text windows from a sentence list."""
+        windows, buf, buf_len = [], [], 0
+
+        for sent in sentences:
+            if buf_len + len(sent) > self.chunk_size and buf:
+                windows.append(" ".join(buf))
+                # keep overlap tail
+                tail, tail_len = [], 0
+                for s in reversed(buf):
+                    if tail_len + len(s) <= self.overlap:
+                        tail.insert(0, s)
+                        tail_len += len(s)
+                    else:
+                        break
+                buf, buf_len = tail, tail_len
+
+            buf.append(sent)
+            buf_len += len(sent)
+
+        if buf:
+            windows.append(" ".join(buf))
+        return windows
+
+    # ------------------------------------------------------------------ #
+    # Level 2 – table chunks                                             #
+    # ------------------------------------------------------------------ #
+
+    def _table_chunks(self, filing_id: str, section: str,
+                      content: str, parent_id: str) -> List[Chunk]:
+        slug = self._slug(section)
         chunks = []
 
-        # Detect tables (markdown format)
-        table_pattern = r'(\|[^\n]+\|\n\|[-:\|\s]+\|\n(?:\|[^\n]+\|\n)+)'
-        tables = re.finditer(table_pattern, content)
+        for i, match in enumerate(re.finditer(self.TABLE_PATTERN, content)):
+            table_md = match.group()
+            lines    = [l.strip() for l in table_md.splitlines() if l.strip()]
+            headers  = [c.strip() for c in lines[0].split("|") if c.strip()]
 
-        last_end = 0
-        for match in tables:
-            # Text before table
-            if match.start() > last_end:
-                text_chunk = content[last_end:match.start()]
-                if len(text_chunk.strip()) > 50:
-                    chunks.append(self._create_text_chunk(
-                        text_chunk, section_name, parent_id
-                    ))
-
-            # Table chunk
-            table_content = match.group(1)
-            chunks.append(self._create_table_chunk(
-                table_content, section_name, parent_id
+            chunks.append(Chunk(
+                id        = self._make_id(ChunkType.TABLE, filing_id, slug, str(i)),
+                type      = ChunkType.TABLE,
+                section   = section,
+                content   = table_md,
+                parent_id = parent_id,
+                metadata  = {
+                    "headers":    headers,
+                    "rows":       max(0, len(lines) - 2),
+                    "is_financial": bool(re.search(
+                        r"\$|revenue|income|assets|liabilities",
+                        table_md, re.IGNORECASE)),
+                },
             ))
-            last_end = match.end()
-
-        # Remaining text
-        if last_end < len(content):
-            remaining = content[last_end:]
-            if len(remaining.strip()) > 50:
-                chunks.append(self._create_text_chunk(
-                    remaining, section_name, parent_id
-                ))
 
         return chunks
 
-    def _create_table_chunk(self, table_md: str,
-                            section: str, parent_id: str) -> Chunk:
-        """Special handling for financial tables"""
-        # Parse table structure
-        rows = [row.strip()
-                for row in table_md.strip().split('\n') if row.strip()]
-        headers = [cell.strip() for cell in rows[0].split('|') if cell.strip()]
+    # ------------------------------------------------------------------ #
+    # Section splitting                                                  #
+    # ------------------------------------------------------------------ #
 
-        # Extract table caption/context (usually preceding text)
-        context = self._extract_table_context(table_md)
-
-        return Chunk(
-            id=f"table_{hash(table_md) % 10000000}",
-            content=table_md,
-            content_type=ContentType.TABLE,
-            section=section,
-            sub_section=None,
-            page_range=(0, 0),  # Populate from OCR metadata
-            summary=None,  # Will be generated
-            entities=self._extract_table_entities(table_md, headers),
-            parent_chunk_id=parent_id,
-            child_chunk_ids=[],
-            metadata={
-                "table_headers": headers,
-                "row_count": len(rows) - 2,  # Exclude header and separator
-                "table_context": context,
-                "is_financial_table": self._is_financial_table(headers)
-            }
+    def _split_sections(self, text: str) -> Dict[str, str]:
+        matches = sorted(
+            (
+                (m.start(), m.end(), name)
+                for name, pattern in self.SECTION_PATTERNS.items()
+                for m in re.finditer(pattern, text, re.IGNORECASE)
+            ),
+            key=lambda x: x[0],
         )
 
-    def _create_metadata_chunk(self, filing_metadata: Dict) -> Chunk:
-        """Create a root chunk for document metadata"""
-        return Chunk(
-            id=f"doc_{filing_metadata.get('accession_number', 'unknown')}",
-            content=str(filing_metadata),
-            content_type=ContentType.METADATA,
-            section="Document Metadata",
-            sub_section=None,
-            page_range=(0, 0),
-            summary=None,
-            entities=[],
-            parent_chunk_id=None,
-            child_chunk_ids=[],
-            metadata=filing_metadata
-        )
+        if not matches:
+            return {"Full Document": text}
 
-    def _split_by_sections(self, markdown_text: str) -> Dict[str, str]:
-        """Split markdown into SEC sections using regex patterns"""
         sections = {}
-        positions = []
+        for i, (start, end, name) in enumerate(matches):
+            next_start = matches[i + 1][0] if i + 1 < len(matches) else len(text)
+            sections[name] = text[end:next_start].strip()
 
-        for name, pattern in self.section_patterns.items():
-            match = re.search(pattern, markdown_text, re.IGNORECASE)
-            if match:
-                positions.append((match.start(), name))
-
-        positions.sort()
-
-        for i in range(len(positions)):
-            start_pos, section_name = positions[i]
-            end_pos = (positions[i + 1][0] if i + 1 < len(positions)
-                       else len(markdown_text))
-            sections[section_name] = markdown_text[start_pos:end_pos]
+        if matches[0][0] > 0:
+            sections["Preliminary"] = text[:matches[0][0]].strip()
 
         return sections
 
-    def _create_section_chunk(self, section_name: str,
-                              content: str, parent_id: str) -> Chunk:
-        """Create a chunk for a major document section"""
-        return Chunk(
-            id=f"section_{section_name.replace(' ', '_')}",
-            content=content[:1000].strip(),  # Store intro/header part
-            content_type=ContentType.SECTION_HEADER,
-            section=section_name,
-            sub_section=None,
-            page_range=(0, 0),
-            summary=None,
-            entities=[],
-            parent_chunk_id=parent_id,
-            child_chunk_ids=[],
-            metadata={"full_section_length": len(content)}
-        )
 
-    def _create_text_chunk(self, text: str,
-                           section_name: str, parent_id: str) -> Chunk:
-        """Create a chunk for a block of text"""
-        return Chunk(
-            id=f"text_{hash(text) % 10000000}",
-            content=text.strip(),
-            content_type=ContentType.TEXT,
-            section=section_name,
-            sub_section=None,
-            page_range=(0, 0),
-            summary=None,
-            entities=[],
-            parent_chunk_id=parent_id,
-            child_chunk_ids=[],
-            metadata={}
-        )
+# --------------------------------------------------------------------------- #
+# Quick demo                                                                  #
+# --------------------------------------------------------------------------- #
+if __name__ == "__main__":
+    import json
+    import os
 
-    def _extract_table_context(self, table_md: str) -> str:
-        """Heuristically extract table context (titles, headings)"""
-        # Simplistic implementation: in production, this would look at
-        # preceding lines in DOM/MD
-        return "Financial Table"
+    meta = {
+        "filing_id":   "GOOGL10K2024",
+        "company_name": "Google",
+        "cik":         "0000320193",
+        "filing_type": "10-K",
+        "filing_date": "2024-10-27",
+        "fiscal_year": 2024,
+    }
 
-    def _extract_table_entities(self, table_md: str,
-                                headers: List[str]) -> List[Dict]:
-        """Extract basic entities from table contents"""
-        entities = []
-        if "$" in table_md:
-            entities.append({
-                "type": "FINANCIAL_VALUE",
-                "context": "currency_symbol_detected"
-            })
-        return entities
+    md_path = "/home/diwakar/dev/Fin-RAG/data/processed/GOOGL_10K_2024.md"
+    chunker = SECChunker(chunk_size=1500, overlap=150)
 
-    def _is_financial_table(self, headers: List[str]) -> bool:
-        """Identify if a table is financial (vs narrative) based on headers"""
-        financial_keywords = {
-            "balance", "income", "cash", "equity", "assets",
-            "liabilities", "revenue", "net"
-        }
-        return any(any(kw in h.lower() for kw in financial_keywords)
-                   for h in headers)
+    # Process file path directly
+    print(f"--- Chunking {md_path} ---")
+    chunks = chunker.chunk_file(md_path, meta)
+
+    # Save to JSON
+    output_path = "/home/diwakar/dev/Fin-RAG/data/processed/chunks_1_GOOGL10K2024.json"
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump([c.to_dict() for c in chunks], f, indent=2)
+
+    print(f"Saved {len(chunks)} chunks to {output_path}")
+
+    # Print first few for inspection
+    for c in chunks[:5]:
+        print(f"[{c.type.value}] {c.id}")
+        print(f"  section  : {c.section}")
+        print(f"  preview  : {c.content[:80].strip()!r}")
+        print()

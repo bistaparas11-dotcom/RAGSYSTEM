@@ -34,6 +34,5 @@ class IngestionManager:
 if __name__ == "__main__":
     companies = ["NVDA", "ORCL", "META", "MSFT", "GOOGL"]
     manager = IngestionManager()
-    # manager.download_files(companies, 2024)
-    manager.download_files(companies, 2025)
+    manager.download_files(companies, 2024)
     manager.process_all_files()

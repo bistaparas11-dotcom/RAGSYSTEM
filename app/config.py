@@ -6,6 +6,8 @@ from functools import lru_cache
 class Settings(BaseSettings):
     SEC_API_KEY: str
     OCR_API_URL: str
+    GROQ_API_KEY: str
+    DEEPSEEK_API_URL: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
