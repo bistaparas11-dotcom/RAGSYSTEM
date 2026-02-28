@@ -26,14 +26,19 @@ def test_chunking_with_children_and_summaries():
         
         markdown = """
 # ITEM 1. BUSINESS
-This is some business text.
+This is some business text that is long enough to be a paragraph. It contains multiple sentences to ensure that the content exceeds the minimum character threshold required for creating a text chunk. We want to make sure that paragraph-based chunking is working correctly and that this text is not discarded as a micro-chunk.
 
 | Year | Revenue |
 |------|---------|
 | 2023 | $100M   |
 
 # ITEM 1A. RISK FACTORS
-We have many risks.
+We have many risks. These risks include market volatility, regulatory changes, and competitive pressures. Each of these risks could materially affect our business operations and financial results in the upcoming fiscal year.
+
+This is another paragraph of risk factors. It is also sufficiently long to be captured as a separate chunk if it's treated as a paragraph. We are testing the ability of the chunker to split by double newlines.
+
+# ITEM 2. PROPERTIES
+We have many properties across the globe. Our main headquarters is located in a high-tech campus that supports our research and development efforts. We also leased several data centers to handle our growing computational needs.
 """
         
         chunks = chunker.chunk(markdown, meta)
@@ -59,7 +64,7 @@ We have many risks.
             
         for t in text_chunks:
             assert t.summary == "Mocked Summary"
-            print(f"Text Chunk {t.id} has summary.")
+            print(f"Text Chunk {t.id} content:\n{t.content!r}\n")
             
         for tbl in table_chunks:
             assert tbl.summary == "Mocked Summary"
@@ -67,9 +72,14 @@ We have many risks.
 
         print("\nVerification successful!")
         
-        # Print a sample chunk to dict
-        print("\nSample Chunk Dict:")
-        print(json.dumps(text_chunks[0].to_dict(), indent=2))
+        # Print sample chunks
+        if text_chunks:
+            print("\nSample Text Chunk Dict:")
+            print(json.dumps(text_chunks[0].to_dict(), indent=2))
+        
+        if table_chunks:
+            print("\nSample Table Chunk Dict:")
+            print(json.dumps(table_chunks[0].to_dict(), indent=2))
 
 if __name__ == "__main__":
     try:
