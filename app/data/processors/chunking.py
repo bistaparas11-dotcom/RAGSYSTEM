@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
-from app.utils.llm_utils import generate_summary
 import re
 import hashlib
 from enum import Enum
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
+from app.utils.llm_utils import extract_sec_data
 
 
 class ChunkType(Enum):
@@ -22,6 +22,8 @@ class Chunk:
     parent_id:       Optional[str]
     child_chunk_ids: List[str] = field(default_factory=list)
     summary:         Optional[str] = None
+    entities:        List[Dict[str, Any]] = field(default_factory=list)
+    relationships:   List[Dict[str, Any]] = field(default_factory=list)
     metadata:        Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -33,6 +35,8 @@ class Chunk:
             "parent_id": self.parent_id,
             "child_chunk_ids": self.child_chunk_ids,
             "summary": self.summary,
+            "entities": self.entities,
+            "relationships": self.relationships,
             "metadata": self.metadata
         }
 
@@ -65,7 +69,7 @@ class SECChunker:
             "Item 15": r"ITEM\s+15\.?\s*EXHIBITS\s+AND\s+FINANCIAL\s+STATEMENT\s+SCHEDULES"
         }
 
-    TABLE_PATTERN = r"\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n)+"
+    TABLE_PATTERN = r"\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|(?:\n|$))+"
 
     def __init__(self, chunk_size: int = 1500, overlap: int = 150):
         self.chunk_size = chunk_size
@@ -90,20 +94,36 @@ class SECChunker:
         for section, content in self._split_sections(markdown).items():
             sec   = self._section_chunk(filing_id, section, content, doc.id)
             doc.child_chunk_ids.append(sec.id)
-            
+
             texts = self._text_chunks(filing_id, section, content, sec.id)
             for t in texts:
-                t.summary = generate_summary(t.content)
+                self._enrich_chunk(t, context=section)
                 sec.child_chunk_ids.append(t.id)
-                
+
             tables = self._table_chunks(filing_id, section, content, sec.id)
             for tbl in tables:
-                tbl.summary = generate_summary(tbl.content)
+                self._enrich_chunk(tbl, context=section)
                 sec.child_chunk_ids.append(tbl.id)
-                
+
             chunks += [sec, *texts, *tables]
 
         return chunks
+
+    # Enrich chunks - summary, entities, relationships
+
+    def _enrich_chunk(self, chunk: Chunk, context: str) -> None:
+        """
+        Call extract_sec_data to populate summary, entities, and relationships.
+        """
+        result = extract_sec_data(chunk.content, context)
+
+        if "error" in result:
+            chunk.summary = None
+            return
+
+        chunk.summary       = result.get("summary")
+        chunk.entities      = result.get("entities", [])
+        chunk.relationships = result.get("relationships", [])
 
     # ------------------------------------------------------------------ #
     # ID helpers                                                         #
@@ -119,7 +139,7 @@ class SECChunker:
     @staticmethod
     def _short_hash(text: str) -> str:
         """
-        Create unique hash for the text 
+        Create unique hash for the text
         """
         return hashlib.md5(text.encode()).hexdigest()[:6]
 
@@ -185,8 +205,9 @@ class SECChunker:
         prose = re.sub(self.TABLE_PATTERN, "", content).strip()
         slug  = self._slug(section)
 
-        sentences = re.split(r"(?<=[.!?])\s+", prose)
-        windows   = self._sliding_windows(sentences)
+        # Split by paragraph (one or more empty lines)
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", prose) if p.strip()]
+        windows    = self._sliding_windows(paragraphs, separator="\n\n")
 
         return [
             Chunk(
@@ -201,28 +222,37 @@ class SECChunker:
             if len(window) >= 100  # skip micro-chunks
         ]
 
-    def _sliding_windows(self, sentences: List[str]) -> List[str]:
-        """Build overlapping text windows from a sentence list."""
+    def _sliding_windows(self, items: List[str], separator: str = " ") -> List[str]:
+        """Build overlapping text windows from a list of strings."""
         windows, buf, buf_len = [], [], 0
 
-        for sent in sentences:
-            if buf_len + len(sent) > self.chunk_size and buf:
-                windows.append(" ".join(buf))
+        for item in items:
+            item_len = len(item)
+            # Add separator length if buffer is not empty
+            effective_len = item_len + (len(separator) if buf else 0)
+
+            if buf_len + effective_len > self.chunk_size and buf:
+                windows.append(separator.join(buf))
                 # keep overlap tail
                 tail, tail_len = [], 0
                 for s in reversed(buf):
-                    if tail_len + len(s) <= self.overlap:
+                    s_len = len(s)
+                    s_effective_len = s_len + (len(separator) if tail else 0)
+
+                    if tail_len + s_effective_len <= self.overlap:
                         tail.insert(0, s)
-                        tail_len += len(s)
+                        tail_len += s_effective_len
                     else:
                         break
                 buf, buf_len = tail, tail_len
+                # Recalculate effective_len for the current item with the new buffer
+                effective_len = item_len + (len(separator) if buf else 0)
 
-            buf.append(sent)
-            buf_len += len(sent)
+            buf.append(item)
+            buf_len += effective_len
 
         if buf:
-            windows.append(" ".join(buf))
+            windows.append(separator.join(buf))
         return windows
 
     # ------------------------------------------------------------------ #
@@ -276,7 +306,9 @@ class SECChunker:
         sections = {}
         for i, (start, end, name) in enumerate(matches):
             next_start = matches[i + 1][0] if i + 1 < len(matches) else len(text)
-            sections[name] = text[end:next_start].strip()
+            # Capture content and strip trailing characters like '#' or extra whitespace
+            raw_content = text[end:next_start].strip()
+            sections[name] = re.sub(r"#+\s*$", "", raw_content).strip()
 
         if matches[0][0] > 0:
             sections["Preliminary"] = text[:matches[0][0]].strip()
@@ -319,6 +351,9 @@ if __name__ == "__main__":
     # Print first few for inspection
     for c in chunks[:5]:
         print(f"[{c.type.value}] {c.id}")
-        print(f"  section  : {c.section}")
-        print(f"  preview  : {c.content[:80].strip()!r}")
+        print(f"  section      : {c.section}")
+        print(f"  preview      : {c.content[:80].strip()!r}")
+        print(f"  summary      : {(c.summary or '')[:80]!r}")
+        print(f"  entities     : {len(c.entities)}")
+        print(f"  relationships: {len(c.relationships)}")
         print()
