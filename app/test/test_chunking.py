@@ -18,9 +18,7 @@ def test_chunking_with_children_and_summaries():
         meta = {
             "filing_id":   "TEST10K2024",
             "company_name": "TestCorp",
-            "cik":         "0000000000",
             "filing_type": "10-K",
-            "filing_date": "2024-01-01",
             "fiscal_year": 2024,
         }
         

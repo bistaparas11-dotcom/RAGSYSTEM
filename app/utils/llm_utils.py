@@ -4,7 +4,7 @@ import requests
 import json
 from typing import Optional
 
-from ..config import settings
+from app.config import settings
 
 
 def extract_sec_data(content: str, context: str):

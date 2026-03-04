@@ -7,7 +7,7 @@ import time
 import urllib.request
 import urllib.error
 from io import BytesIO
-from ..config import settings
+from app.config import settings
 
 
 def process_pdf(pdf_path, output_md_path, prompt="ocr", dpi=300):

@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     OCR_API_URL: str
     GROQ_API_KEY: str
     DEEPSEEK_API_URL: str
+    NEO4J_URI: str
+    NEO4J_USER: str
+    NEO4J_PASSWORD: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

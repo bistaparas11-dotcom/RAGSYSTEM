@@ -166,13 +166,12 @@ class SECChunker:
             section   = "document",
             content   = (
                 f"{meta.get('company_name')} | {meta.get('filing_type')} | "
-                f"CIK {meta.get('cik')} | FY {meta.get('fiscal_year')} | "
-                f"Filed {meta.get('filing_date')}"
+                f"FY {meta.get('fiscal_year')}"
             ),
             parent_id = None,
             metadata  = {k: meta[k] for k in
-                         ("company_name", "cik", "filing_type",
-                          "filing_date", "fiscal_year") if k in meta},
+                         ("company_name", "filing_type",
+                          "fiscal_year") if k in meta},
         )
 
     # ------------------------------------------------------------------ #
@@ -326,9 +325,7 @@ if __name__ == "__main__":
     meta = {
         "filing_id":   "GOOGL10K2024",
         "company_name": "Google",
-        "cik":         "0000320193",
         "filing_type": "10-K",
-        "filing_date": "2024-10-27",
         "fiscal_year": 2024,
     }
 

@@ -1,6 +1,7 @@
 import os
-from ...utils.fetch_sec import SECBulkDownloader
-from ...utils.pdf_to_markdown import process_pdf
+
+from app.utils.fetch_sec import SECBulkDownloader
+from app.utils.pdf_to_markdown import process_pdf
 
 
 class IngestionManager:
@@ -32,7 +33,8 @@ class IngestionManager:
 
 
 if __name__ == "__main__":
-    companies = ["NVDA", "ORCL", "META", "MSFT", "GOOGL"]
+    # companies = ["GOOG", "GOOGL", "META", "MSFT", "NVDA", "ORCL"]
     manager = IngestionManager()
-    manager.download_files(companies, 2024)
-    manager.process_all_files()
+    # manager.download_files(companies, 2024)
+    # manager.process_all_files()
+

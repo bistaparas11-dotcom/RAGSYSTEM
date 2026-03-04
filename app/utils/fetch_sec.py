@@ -1,6 +1,6 @@
 import os
 from sec_api import QueryApi, PdfGeneratorApi
-from ..config import settings
+from app.config import settings
 
 
 class SECBulkDownloader:
