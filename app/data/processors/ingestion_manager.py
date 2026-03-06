@@ -1,7 +1,10 @@
 import os
 
-from app.utils.fetch_sec import SECBulkDownloader
-from app.utils.pdf_to_markdown import process_pdf
+from chunking import SECChunker
+from graph_schema import KnowledgeGraph
+from app.config import settings
+from app.utils.sec_utils import SECBulkDownloader
+from app.utils.file_utils import process_pdf
 
 
 class IngestionManager:
@@ -9,6 +12,11 @@ class IngestionManager:
         self.raw_dir = "./data/raw"
         self.processed_dir = "./data/processed"
         self.prompt = "table"
+        self.knowledge_graph = KnowledgeGraph(
+            uri=settings.NEO4J_URI,
+            user=settings.NEO4J_USER,
+            password=settings.NEO4J_PASSWORD
+        )
     
     def download_files(self, tickers, year):
         downloader = SECBulkDownloader()
@@ -30,11 +38,29 @@ class IngestionManager:
                                 prompt=self.prompt)
                 else:
                     print(f"Skipping {filename}, already processed.")
+    
+    def chunk_all_files(self):
+        """Iterates through processed Markdowns and chunks them"""
+        pass
 
+    def build_graph(self):
+        """Builds the knowledge graph from the chunks"""
+        pass
+        
 
 if __name__ == "__main__":
     # companies = ["GOOG", "GOOGL", "META", "MSFT", "NVDA", "ORCL"]
     manager = IngestionManager()
+
+    # Download SEC files in PDF
     # manager.download_files(companies, 2024)
+
+    # Process PDFs to Markdown
     # manager.process_all_files()
 
+    # Chunk the Markdown files
+    manager.chunk_all_files()
+
+    # Build the knowledge graph
+    manager.build_graph()
+    
