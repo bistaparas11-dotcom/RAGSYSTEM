@@ -344,13 +344,3 @@ if __name__ == "__main__":
         json.dump([c.to_dict() for c in chunks], f, indent=2)
 
     print(f"Saved {len(chunks)} chunks to {output_path}")
-
-    # Print first few for inspection
-    for c in chunks[:5]:
-        print(f"[{c.type.value}] {c.id}")
-        print(f"  section      : {c.section}")
-        print(f"  preview      : {c.content[:80].strip()!r}")
-        print(f"  summary      : {(c.summary or '')[:80]!r}")
-        print(f"  entities     : {len(c.entities)}")
-        print(f"  relationships: {len(c.relationships)}")
-        print()

@@ -9,13 +9,16 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str
     DEEPSEEK_API_URL: str
     NEO4J_URI: str
-    NEO4J_USER: str
+    NEO4J_USERNAME: str
     NEO4J_PASSWORD: str
+    NVIDIA_NIM_API: str
+    WEAVIATE_URL: str
+    WEAVIATE_API_KEY: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"  # Ignore extra variables in .env
+        extra="ignore"
     )
 
 

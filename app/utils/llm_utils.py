@@ -13,6 +13,15 @@ def extract_sec_data(content: str, context: str):
     """
     deepseek_url = settings.DEEPSEEK_API_URL
     headers = {"Content-Type": "application/json"}
+    json_structure = """{
+        "summary": "3-sentence summary here",
+        "entities": [
+            {"name": "Entity Name", "type": "Entity Type", "description": "Brief context"}
+        ],
+        "relationships": [
+            {"source": "Entity A", "relationship": "Relationship Type", "target": "Entity B", "description": "Supporting evidence from text"}
+        ]
+    }"""
 
     prompt = f"""
     ### Role
@@ -26,15 +35,7 @@ def extract_sec_data(content: str, context: str):
 
     ### Output Format (Strict JSON)
     Return only a JSON object with this structure:
-    {
-        "summary": "3-sentence summary here",
-        "entities": [
-            {"name": "Entity Name", "type": "Entity Type", "description": "Brief context"}
-        ],
-        "relationships": [
-            {"source": "Entity A", "relationship": "Relationship Type", "target": "Entity B", "description": "Supporting evidence from text"}
-        ]
-    }
+    {json_structure}
 
     ### Content to Analyze
     Context: {context}
