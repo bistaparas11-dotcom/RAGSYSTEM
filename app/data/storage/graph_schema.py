@@ -18,7 +18,7 @@ class KnowledgeGraph:
 
         Each Chunk already carries:
           - chunk.entities      → list of {name, type, description}
-          - chunk.relationships → list of {source, relationship, target, description}
+          - chunk.relationships → list of {source, relationship, target, descri ption}
           - chunk.summary       → 3-sentence summary string
 
         All edges are :RELATES_TO with a `type` property for flexibility.
@@ -40,8 +40,9 @@ class KnowledgeGraph:
                     session.execute_write(self._create_chunk_node_tx, chunk, filing_metadata["filing_id"])
 
                     for entity in chunk.entities:
-                        session.execute_write(self._create_entity_node_tx, entity, filing_metadata["filing_id"])
-                        session.execute_write(self._link_chunk_to_entity_tx, chunk.id, entity["name"])
+                        entity_dict = {"name": entity, "type": "Unknown", "description": ""} if isinstance(entity, str) else entity
+                        session.execute_write(self._create_entity_node_tx, entity_dict, filing_metadata["filing_id"])
+                        session.execute_write(self._link_chunk_to_entity_tx, chunk.id, entity_dict.get("name", entity))
 
                     for rel in chunk.relationships:
                         session.execute_write(self._create_relationship_tx, rel)
@@ -153,6 +154,9 @@ class KnowledgeGraph:
         Links the entity back to its :Document so it is always reachable
         from the filing root.
         """
+        if isinstance(entity, str):
+            entity = {"name": entity, "type": "Unknown", "description": ""}
+
         query = """
         MERGE (e:Entity {name: $name, type: $type})
         SET e.description = $description,
