@@ -128,7 +128,7 @@ class GraphRetriever:
             result = session.run(query)
             return [dict(r) for r in result]
 
-    # ------------------- Graph path retrieval------------------- #
+    # ------------------- Graph path retrieval ------------------- #
 
     def find_entity_paths(
         self,
