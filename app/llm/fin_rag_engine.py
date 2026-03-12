@@ -30,7 +30,7 @@ class FinRAGEngine:
         question: str,
         mode: str = "hybrid",
         filing_id: Optional[str] = None,
-        top_k: int = 8,
+        top_k: int = 4,
         stream: bool = False,
     ) -> QAResponse | Iterator[str]:
         """Single question -> retriever -> llm answer.

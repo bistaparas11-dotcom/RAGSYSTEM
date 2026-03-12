@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     NVIDIA_NIM_API: str
     WEAVIATE_URL: str
     WEAVIATE_API_KEY: str
+    MODEL: str = "llama-3.1-8b-instant"
 
     model_config = SettingsConfigDict(
         env_file=".env",

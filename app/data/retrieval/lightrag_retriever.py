@@ -54,8 +54,9 @@ class RetrievedContext:
             for i, c in enumerate(self.chunks, 1):
                 filing = c.get("filing_id", "")
                 section = c.get("section", "")
+                content = (c.get("content") or c.get("summary") or "")[:500]
                 parts.append(f"\n[{i}] Filing: {filing} | Section: {section}")
-                parts.append(c.get("content") or c.get("summary") or "")
+                parts.append(content)
 
         if self.neighbour_chunks:
             parts.append("\n=== SURROUNDING CONTEXT ===")
@@ -91,7 +92,7 @@ class LightRAGRetriever:
         self,
         query: str,
         mode: str = "hybrid",           # "local" | "global" | "hybrid"
-        top_k: int = 8,
+        top_k: int = 4,
         filing_id: Optional[str] = None,
         expand_neighbours: bool = True,
     ) -> RetrievedContext:
