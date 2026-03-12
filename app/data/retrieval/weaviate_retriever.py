@@ -15,7 +15,7 @@ class WeaviateRetriever:
             cluster_url=settings.WEAVIATE_URL,
             auth_credentials=Auth.api_key(settings.WEAVIATE_API_KEY),
         )
-        self.embedder = BGEM3Embedder(settings.NVIDIA_API_KEY)
+        self.embedder = BGEM3Embedder(settings.NVIDIA_NIM_API)
 
     def close(self):
         self.client.close()
