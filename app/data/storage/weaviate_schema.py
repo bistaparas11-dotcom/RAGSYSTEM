@@ -132,9 +132,7 @@ class WeaviateSchema:
         )
 
 
-# ------------------------------------------------------------------ #
-# Ingestor                                                           #
-# ------------------------------------------------------------------ #
+# ------------------- Ingestor ------------------- #
 
 class WeaviateIngestor:
     """
@@ -176,8 +174,6 @@ class WeaviateIngestor:
         self._wire_references(chunks, filing_metadata["filing_id"])
 
         return self._refs
-
-    # -- Insert helpers ----------------------------------------------- #
 
     def _insert_document(self, chunk, metadata: Dict[str, Any]):
         filing_id = metadata["filing_id"]
@@ -261,7 +257,7 @@ class WeaviateIngestor:
                 from_uuid=src_uuid, from_property="relatesTo", to=tgt_uuid,
             )
 
-    # -- Cross-reference wiring --------------------------------------- #
+    # ------------------- Cross-reference wiring ------------------- #
 
     def _wire_references(self, chunks, filing_id: str):
         from app.data.processors.chunking import ChunkType
