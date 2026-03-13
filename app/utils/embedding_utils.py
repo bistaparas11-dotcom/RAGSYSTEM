@@ -8,7 +8,7 @@ class BGEM3Embedder:
     """
     MODEL = "baai/bge-m3"
 
-    def __init__(self, api_key: str):
+    def __init__(self):
         self.client = OpenAI(
             api_key=settings.NVIDIA_NIM_API,
             base_url="https://integrate.api.nvidia.com/v1",

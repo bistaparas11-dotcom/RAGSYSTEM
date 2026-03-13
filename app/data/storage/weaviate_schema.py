@@ -144,9 +144,9 @@ class WeaviateIngestor:
         refs = ingestor.ingest(chunks, filing_metadata)
     """
 
-    def __init__(self, client: weaviate.WeaviateClient, nvidia_api_key: str):
+    def __init__(self, client: weaviate.WeaviateClient):
         self.client   = client
-        self.embedder = BGEM3Embedder(nvidia_api_key)
+        self.embedder = BGEM3Embedder()
         # neo4j_id -> weaviate UUID
         self._refs: Dict[str, str] = {}
 
