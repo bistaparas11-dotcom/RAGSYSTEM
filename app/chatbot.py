@@ -5,27 +5,24 @@ Usage:
     python -m app.chatbot
 
 Commands:
-    /reset           — clear conversation history
-    /mode <m>        — switch retrieval mode: local | global | hybrid
-    /filing <id>     — restrict to a specific filing_id
-    /compare         — guided company comparison
-    /risks <id>      — risk summary for a filing
-    /financials <id> — financial metrics for a filing
-    /filings         — list all available filings
-    /help            — show this help
-    /quit            — exit
+    /reset                — clear conversation history
+    /mode <m>             — switch retrieval mode: local | global | hybrid
+    /filing <id/name>     — restrict to a specific filing_id
+    /compare              — guided company comparison
+    /risks <id/name>      — risk summary for a filing
+    /financials <id/name> — financial metrics for a filing
+    /filings              — list all available filings
+    /help                 — show this help
+    /quit                 — exit
 """
 
-import sys
 from app.llm.fin_rag_engine import FinRAGEngine
-from app.data.retrieval.graph_retriever import GraphRetriever
 
 
 BANNER = """
 |==========================================================|
 |          FinRAG: SEC 10-K Financial RAG Chat             |
-|      LightRAG implementation using Neo4j + Weaviate      |
-|                      Model: Groq                         |
+|      Lightrag -> Neo4j + Weaviate + BGE-M3 + Groq        |
 |==========================================================|
 Type /help for commands, /quit to exit.
 """
@@ -39,8 +36,8 @@ def print_response(resp):
     print(f"{'─'*60}\n")
 
 
-def list_filings(graph: GraphRetriever):
-    docs = graph.list_documents()
+def list_filings(engine: FinRAGEngine):
+    docs = engine.resolver.list_all()
     if not docs:
         print("No filings found in the knowledge graph.")
         return
@@ -56,25 +53,23 @@ def main():
     print(BANNER)
 
     engine = FinRAGEngine()
-    graph = GraphRetriever()
-
     mode = "hybrid"
     filing_id = None
 
     try:
         while True:
             try:
-                user_input = input("You: ").strip()
+                raw = input("You: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nGoodbye!")
                 break
 
-            if not user_input:
+            if not raw:
                 continue
 
             # Commands
-            if user_input.startswith("/"):
-                parts = user_input.split(maxsplit=1)
+            if raw.startswith("/"):
+                parts = raw.split(maxsplit=1)
                 cmd = parts[0].lower()
                 arg = parts[1].strip() if len(parts) > 1 else ""
 
@@ -87,26 +82,32 @@ def main():
 
                 elif cmd == "/reset":
                     engine.reset_history()
-                    print("Conversation history cleared.")
+                    print("[OK] Conversation history cleared.")
 
                 elif cmd == "/mode":
                     if arg in ("local", "global", "hybrid"):
                         mode = arg
-                        print(f"Retrieval mode set to: {mode}")
+                        print(f"[OK] Retrieval mode set to: {mode}")
                     else:
                         print("[!] Valid modes: local | global | hybrid")
 
                 elif cmd == "/filing":
-                    filing_id = arg if arg else None
-                    print(f"Filing filter: {filing_id or 'None (all filings)'}")
+                    if arg:
+                        filing_ref = arg
+                        resolved = engine.resolver.resolve(arg)
+                        if resolved:
+                            print(f"[OK] Filing filter: {resolved}")
+                        else:
+                            print(f"[!] {arg} not found in knowledge graph.")
+                            filing_ref = None
 
                 elif cmd == "/filings":
-                    list_filings(graph)
-
+                    list_filings(engine)
+                    
                 elif cmd == "/compare":
-                    companies = input("Companies (comma-separated): ").strip().split(",")
-                    topic     = input("Topic: ").strip()
-                    companies = [c.strip() for c in companies if c.strip()]
+                    companies_raw = input("Companies (comma-separated): ").strip()
+                    topic = input("Topic: ").strip()
+                    companies = [c.strip() for c in companies_raw.split(",") if c.strip()]
                     if companies and topic:
                         print("\n Comparing...")
                         resp = engine.compare_companies(companies, topic)
@@ -115,19 +116,19 @@ def main():
                         print("[ERROR] Please provide at least one company and a topic.")
 
                 elif cmd == "/risks":
-                    fid = arg or filing_id
-                    if not fid:
-                        fid = input("Filing ID: ").strip()
-                    print(f"\n Retrieving risks for {fid}...")
-                    resp = engine.summarise_risks(fid)
+                    ref = arg or filing_id
+                    if not ref:
+                        ref = input("Filing ID: ").strip()
+                    print(f"\n Retrieving risks for {ref}...")
+                    resp = engine.summarise_risks(ref)
                     print_response(resp)
 
                 elif cmd == "/financials":
-                    fid = arg or filing_id
-                    if not fid:
-                        fid = input("Filing ID: ").strip()
-                    print(f"\n Extracting financials for {fid}...")
-                    resp = engine.extract_financials(fid)
+                    ref = arg or filing_id
+                    if not ref:
+                        ref = input("Filing ID: ").strip()
+                    print(f"\n Extracting financials for {ref}...")
+                    resp = engine.extract_financials(ref)
                     print_response(resp)
 
                 else:
@@ -138,7 +139,7 @@ def main():
             # Normal question
             print("\n Thinking...\n")
             resp = engine.ask(
-                question=user_input,
+                question=raw,
                 mode=mode,
                 filing_id=filing_id,
             )
@@ -146,7 +147,6 @@ def main():
 
     finally:
         engine.close()
-        graph.close()
 
 
 if __name__ == "__main__":

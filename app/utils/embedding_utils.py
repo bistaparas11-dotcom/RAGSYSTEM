@@ -3,9 +3,7 @@ from app.config import settings
 
 
 class BGEM3Embedder:
-    """
-    Wraps the NVIDIA serverless BGE-M3 endpoint.
-    """
+    """Wraps the NVIDIA serverless BGE-M3 endpoint."""
     MODEL = "baai/bge-m3"
 
     def __init__(self):
