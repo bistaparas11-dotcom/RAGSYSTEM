@@ -6,7 +6,7 @@ from app.config import settings
 
 
 class GroqClient:
-    MODEL = "llama-3.3-70b-versatile"  # or "mixtral-8x7b-32768", "gemma2-9b-it"
+    MODEL = settings.MODEL
 
     SYSTEM_PROMPT = """You are an expert financial analyst specialized in SEC 10-K filings analysis.
 
@@ -34,7 +34,8 @@ Guidelines:
         max_tokens=2048,
         stream=False
     ):
-        full_messages = [{"role": "system", "content": self.SYSTEM_PROMPT}] + messages
+        trimmed_msg = messages[-4:] if len(messages) > 4 else messages
+        full_messages = [{"role": "system", "content": self.SYSTEM_PROMPT}] + trimmed_msg
         response = self.client.chat.completions.create(
             model=self.MODEL,
             messages=full_messages,

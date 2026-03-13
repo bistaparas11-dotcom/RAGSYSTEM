@@ -34,8 +34,7 @@ class IngestionManager:
         WeaviateSchema(self.weaviate_client).create_schema()
 
         self.weaviate_ingestor = WeaviateIngestor(
-            client=self.weaviate_client,
-            nvidia_api_key=settings.NVIDIA_NIM_API
+            client=self.weaviate_client
         )
 
         # -- Chunker ---
