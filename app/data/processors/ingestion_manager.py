@@ -40,9 +40,9 @@ class IngestionManager:
         # -- Chunker ---
         self.chunker = SECChunker(chunk_size=CHUNK_SIZE, overlap=OVERLAP)
     
-    def download_files(self, tickers, year):
+    def download_files(self, ticker_urls, year):
         downloader = SECBulkDownloader()
-        downloader.download_10ks(tickers, year)
+        downloader.download_10ks(ticker_urls, year)
 
     def process_all_files(self):
         """Iterates through raw PDFs and saves Markdowns"""
@@ -110,15 +110,18 @@ class IngestionManager:
         
 
 if __name__ == "__main__":
-    # companies = ["GOOG", "GOOGL", "META", "MSFT", "NVDA", "ORCL"]
+    filing_10k_url_meta = "https://www.sec.gov/ix?doc=/Archives/edgar/data/0001326801/000162828026003942/meta-20251231.htm"
+    filing_10k_url_nvda = "https://www.sec.gov/ix?doc=/Archives/edgar/data/0001045810/000104581026000021/nvda-20260125.htm"
+    companies = [filing_10k_url_meta, filing_10k_url_nvda]
+
     manager = IngestionManager()
 
     try:
         # Download SEC files in PDF
-        # manager.download_files(companies, 2024)
+        # manager.download_files(companies, 2025)
 
         # Process PDFs to Markdown
-        # manager.process_all_files()
+        manager.process_all_files()
 
         # Chunk + build graph + insert into Weaviate
         manager.ingest_all_files()
