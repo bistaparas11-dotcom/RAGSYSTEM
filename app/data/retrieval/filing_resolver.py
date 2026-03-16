@@ -16,9 +16,9 @@ class FilingResolver:
     }
 
     def __init__(self):
-        self._graph   = GraphRetriever()
-        self._cache:  Dict[str, str] = {}
-        self._all:    List[Dict]     = []
+        self._graph = GraphRetriever()
+        self._cache: Dict[str, str] = {}
+        self._all: List[Dict] = []
         self._refresh()
 
     def _refresh(self):
