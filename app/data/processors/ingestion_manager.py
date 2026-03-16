@@ -1,6 +1,6 @@
 import os
 import weaviate
-from weaviate.classes.init import Auth 
+from weaviate.classes.init import Auth
 
 from .chunking import SECChunker
 from app.config import settings
@@ -12,6 +12,7 @@ from app.data.storage.weaviate_schema import WeaviateSchema, WeaviateIngestor
 
 CHUNK_SIZE = 1000
 OVERLAP = 100
+
 
 class IngestionManager:
     def __init__(self):
@@ -39,7 +40,7 @@ class IngestionManager:
 
         # -- Chunker ---
         self.chunker = SECChunker(chunk_size=CHUNK_SIZE, overlap=OVERLAP)
-    
+
     def download_files(self, ticker_urls, year):
         downloader = SECBulkDownloader()
         downloader.download_10ks(ticker_urls, year)
@@ -60,7 +61,7 @@ class IngestionManager:
                                 prompt=self.prompt)
                 else:
                     print(f"Skipping {filename}, already processed.")
-    
+
     def chunk_all_files(self):
         """Iterates through processed Markdowns and chunks them"""
         for filename in os.listdir(self.processed_dir):
@@ -68,7 +69,6 @@ class IngestionManager:
                 md_path = os.path.join(self.processed_dir, filename)
                 meta = extract_metadata(md_path)
                 chunks = self.chunker.chunk_file(md_path, meta)
-                
 
     def ingest_all_files(self):
         """
@@ -79,11 +79,11 @@ class IngestionManager:
         if not md_files:
             print("No processed Markdown files found.")
             return
-        
+
         for filename in md_files:
             md_path = os.path.join(self.processed_dir, filename)
             print(f"Processing {filename} ...")
-            
+
             # 1. Extract metadata and chunk
             meta = extract_metadata(md_path)
             chunks = self.chunker.chunk_file(md_path, meta)
@@ -93,21 +93,21 @@ class IngestionManager:
                 continue
 
             # 2. Build Neo4j knowledge graph
-            print(f"Building Neo4j knowledge graph ...")
+            print("Building Neo4j knowledge graph ...")
             self.knowledge_graph.build_graph(chunks, meta)
 
             # 3. Ingest into Weaviate
-            print(f"Ingesting into Weaviate")
+            print("Ingesting into Weaviate ...")
             refs = self.weaviate_ingestor.ingest(chunks, meta)
             print(f" Weaviate: {len(refs)} objects upserted.")
 
         print("\nIngestion complete.")
-    
+
     def close(self):
         """Clean up connections."""
         self.knowledge_graph.close()
         self.weaviate_client.close()
-        
+
 
 if __name__ == "__main__":
     filing_10k_url_meta = "https://www.sec.gov/ix?doc=/Archives/edgar/data/0001326801/000162828026003942/meta-20251231.htm"
@@ -118,14 +118,17 @@ if __name__ == "__main__":
 
     try:
         # Download SEC files in PDF
+        # print("---------- Downloading SEC files in PDF ----------")
         # manager.download_files(companies, 2025)
 
         # Process PDFs to Markdown
+        print("---------- Processing PDFs to Markdown ----------")
         manager.process_all_files()
 
         # Chunk + build graph + insert into Weaviate
+        print("---------- Chunking + Building Graph + Inserting into Weaviate ----------")
         manager.ingest_all_files()
 
     finally:
         manager.close()
-    
+
