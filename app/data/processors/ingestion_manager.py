@@ -1,17 +1,36 @@
+"""
+Ingestion Manager
+
+Run everything at once:
+    manager.run_full_pipeline()
+
+Run each step separately:
+    manager.chunk_all_files()
+    manager.enrich_all_files()
+    manager.ingest_all_files()
+
+Check status:
+    manager.status()
+
+Force redo a single stage for one file
+    manager.reset_file("meta-20251231.md", stage="weaviate")
+
+Force redo a stage for all files:
+    manager.reset_all(stage="neo4j")
+"""
+
 import os
 import weaviate
 from weaviate.classes.init import Auth
 
-from .chunking import SECChunker
 from app.config import settings
 from app.utils.file_utils import process_pdf
 from app.utils.sec_utils import SECBulkDownloader
 from app.utils.metadata_utils import extract_metadata
+from app.data.processors.chunk_cache import ChunkCache
+from app.data.processors.fast_chunk_pipeline import FastChunkPipeline
 from app.data.storage.graph_schema import KnowledgeGraph
 from app.data.storage.weaviate_schema import WeaviateSchema, WeaviateIngestor
-
-CHUNK_SIZE = 1000
-OVERLAP = 100
 
 
 class IngestionManager:
@@ -19,6 +38,8 @@ class IngestionManager:
         self.raw_dir = "./data/raw"
         self.processed_dir = "./data/processed"
         self.prompt = "table"
+        self.cache = ChunkCache("./data/chunks")
+        self.pipeline = FastChunkPipeline()
 
         # --- Neo4j ---
         self.knowledge_graph = KnowledgeGraph(
@@ -33,13 +54,13 @@ class IngestionManager:
             auth_credentials=Auth.api_key(settings.WEAVIATE_API_KEY),
         )
         WeaviateSchema(self.weaviate_client).create_schema()
-
         self.weaviate_ingestor = WeaviateIngestor(
             client=self.weaviate_client
         )
 
-        # -- Chunker ---
-        self.chunker = SECChunker(chunk_size=CHUNK_SIZE, overlap=OVERLAP)
+    def close(self):
+        self.knowledge_graph.close()
+        self.weaviate_client.close()
 
     def download_files(self, ticker_urls, year):
         downloader = SECBulkDownloader()
@@ -63,50 +84,75 @@ class IngestionManager:
                     print(f"Skipping {filename}, already processed.")
 
     def chunk_all_files(self):
-        """Iterates through processed Markdowns and chunks them"""
-        for filename in os.listdir(self.processed_dir):
-            if filename.endswith(".md"):
-                md_path = os.path.join(self.processed_dir, filename)
-                meta = extract_metadata(md_path)
-                chunks = self.chunker.chunk_file(md_path, meta)
+        """Pure structural chunking - no LLM."""
+        self.pipeline._chunk_all()
+
+    def enrich_all_files(self):
+        """Async batch enrichment."""
+        self.pipeline.enrich_all()
 
     def ingest_all_files(self):
-        """
-        Chunks every processed Markdown, then writes to both
-        Neo4j and Weaviate.
-        """
-        md_files = [f for f in os.listdir(self.processed_dir) if f.endswith(".md")]
-        if not md_files:
-            print("No processed Markdown files found.")
+        """Load cached enriched chunks, then writes to both Neo4j and Weaviate."""
+        cached_files = self.cache.list_cached()
+        if not cached_files:
+            print("No cached chunks found.")
             return
 
-        for filename in md_files:
-            md_path = os.path.join(self.processed_dir, filename)
-            print(f"Processing {filename} ...")
+        for cache_file in sorted(cached_files):
+            print(f"Ingesting {cache_file} ...")
 
-            # 1. Extract metadata and chunk
-            meta = extract_metadata(md_path)
-            chunks = self.chunker.chunk_file(md_path, meta)
-
-            if not chunks:
-                print(f" No chunks produced for {filename}, skipping")
+            result = self.cache.load(cache_file)
+            if not result:
+                print(f" [!] Could not load, skipping.")
                 continue
+            chunks, meta = result
 
-            # 2. Build Neo4j knowledge graph
-            print("Building Neo4j knowledge graph ...")
-            self.knowledge_graph.build_graph(chunks, meta)
+            if self.cache.is_done(cache_file, "neo4j"):
+                print(f" - Neo4j ingestion already done, skipping.")
+            else:
+                try:
+                    print(" - Building Neo4j knowledge graph...")
+                    self.knowledge_graph.build_graph(chunks, meta)
+                    self.cache.mark(cache_file, "neo4j")
+                    print(" [OK] Neo4j done.")
+                except Exception as e:
+                    print(f" [X] Failed to build Neo4j graph: {e}")
 
-            # 3. Ingest into Weaviate
-            print("Ingesting into Weaviate ...")
-            refs = self.weaviate_ingestor.ingest(chunks, meta)
-            print(f" Weaviate: {len(refs)} objects upserted.")
+            if self.cache.is_done(cache_file, "weaviate"):
+                print(f" - Weaviate ingestion already done, skipping.")
+            else:
+                try:
+                    print(" - Ingesting into Weaviate...")
+                    refs = self.weaviate_ingestor.ingest(chunks, meta)
+                    self.cache.mark(cache_file, "weaviate")
+                    print(f" [OK] Weaviate done: {len(refs)} objects upserted.")
+                except Exception as e:
+                    print(f" [X] Failed to ingest into Weaviate: {e}")
 
         print("\nIngestion complete.")
+        self.cache.print_status()
 
-    def close(self):
-        """Clean up connections."""
-        self.knowledge_graph.close()
-        self.weaviate_client.close()
+    def run_full_pipeline(self):
+        print("\n---------- Running Full Pipeline ----------")
+        print("STAGE 1/3 - Structural Chunking (no LLM)")
+        self.chunk_all_files()
+        print("STAGE 2/3 - Async Enrichment")
+        self.enrich_all_files()
+        print("STAGE 3/3 - Ingestion (Neo4j + Weaviate)")
+        self.ingest_all_files()
+        print("\n[OK] Full pipeline completed.")
+
+    def status(self):
+        self.pipeline.status()
+
+    def reset_file(self, cache_file: str, stage: str = None):
+        self.cache.reset(cache_file, stage)
+        print(f"[OK] Reset {cache_file} for stage: {stage}")
+
+    def reset_all(self, stage: str = None):
+        for f in self.cache.list_cached():
+            self.cache.reset(f, stage)
+        print(f"[OK] Reset all files for stage: {stage}")
 
 
 if __name__ == "__main__":
@@ -117,18 +163,9 @@ if __name__ == "__main__":
     manager = IngestionManager()
 
     try:
-        # Download SEC files in PDF
-        # print("---------- Downloading SEC files in PDF ----------")
         # manager.download_files(companies, 2025)
-
-        # Process PDFs to Markdown
-        print("---------- Processing PDFs to Markdown ----------")
-        manager.process_all_files()
-
-        # Chunk + build graph + insert into Weaviate
-        print("---------- Chunking + Building Graph + Inserting into Weaviate ----------")
-        manager.ingest_all_files()
-
+        # manager.process_all_files()
+        manager.run_full_pipeline()
     finally:
         manager.close()
 

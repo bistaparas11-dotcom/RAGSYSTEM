@@ -7,42 +7,43 @@ from typing import Optional
 from app.config import settings
 
 
-def extract_sec_data(content: str, context: str):
+json_structure = """{
+    "summary": "3-sentence summary here",
+    "entities": [
+        {"name": "Entity Name", "type": "COMPANY|PERSON|PRODUCT|REGULATION|METRIC|RISK", "description": "Brief context"}
+    ],
+    "relationships": [
+        {"source": "Entity A", "relationship": "Relationship Type", "target": "Entity B", "description": "Supporting evidence from text"}
+    ]
+}"""
+
+ENRICH_PROMPT = f"""
+### Role
+You are an expert financial data extractor specialized in SEC filing analysis.
+
+### Task
+Analyze the following SEC filing content and:
+1. Provide a 3-sentence summary for the content
+2. Extract key entities
+3. Extract relationships between entities and create triplets (Source, Relationship, Target)
+
+### Output Format (Strict JSON, No Markdown, No explanation)
+Return only a JSON object with this structure:
+{json_structure}
+
+### Content to Analyze
+Context: {section}
+Content: {content}
+"""
+
+def extract_sec_data(content: str, section: str):
     """
     Extract entity relationships from data along with their summary in structured format.
     """
     deepseek_url = settings.DEEPSEEK_API_URL
     headers = {"Content-Type": "application/json"}
-    json_structure = """{
-        "summary": "3-sentence summary here",
-        "entities": [
-            {"name": "Entity Name", "type": "Entity Type", "description": "Brief context"}
-        ],
-        "relationships": [
-            {"source": "Entity A", "relationship": "Relationship Type", "target": "Entity B", "description": "Supporting evidence from text"}
-        ]
-    }"""
 
-    prompt = f"""
-    ### Role
-    You are an expert financial data extractor specialized in SEC filing analysis.
-
-    ### Task
-    Analyze the following SEC filing content and:
-    1. provide a 3-sentence summary for the content
-    2. extract key entities
-    3. extract relationships between entities and create triplets (Source, Relationship, Target)
-
-    ### Output Format (Strict JSON)
-    Return only a JSON object with this structure:
-    {json_structure}
-
-    ### Content to Analyze
-    Context: {context}
-    Content: {content}
-    """
-
-    data = {"prompt": prompt, "stream": False}
+    data = {"prompt": ENRICH_PROMPT, "stream": False}
 
     try:
         response = requests.post(deepseek_url, headers=headers, json=data)
