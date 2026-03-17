@@ -1,8 +1,10 @@
 import re
 import hashlib
+import asyncio
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
+
 from app.utils.llm_utils import extract_sec_data
 
 
@@ -42,9 +44,7 @@ class Chunk:
 
 
 class SECChunker:
-    """
-    Hierarchical SEC filing chunker.
-    """
+    """Hierarchical SEC filing chunker."""
     # SEC 10-K standard sections
     SECTION_PATTERNS = {
             "Item 1": r"ITEM\s+1\.?\s*BUSINESS",
@@ -75,13 +75,23 @@ class SECChunker:
         self.chunk_size = chunk_size
         self.overlap    = overlap
 
-    def chunk_file(self, file_path: str, meta: Dict[str, Any]) -> List[Chunk]:
+    def chunk_file(
+        self,
+        file_path: str,
+        meta: Dict[str, Any],
+        skip_enrichment: bool = False,
+    ) -> List[Chunk]:
         """Read a file path and then chunk its contents."""
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-        return self.chunk(content, meta)
+        return self.chunk(content, meta, skip_enrichment=skip_enrichment)
 
-    def chunk(self, markdown: str, meta: Dict[str, Any]) -> List[Chunk]:
+    def chunk(
+        self,
+        markdown: str,
+        meta: Dict[str, Any],
+        skip_enrichment: bool = False,
+    ) -> List[Chunk]:
         """Parse a markdown SEC filing into a list of Chunks."""
         filing_id = meta["filing_id"]
         chunks: List[Chunk] = []
@@ -92,42 +102,43 @@ class SECChunker:
 
         # Level 1 + 2 – sections and their children
         for section, content in self._split_sections(markdown).items():
-            sec   = self._section_chunk(filing_id, section, content, doc.id)
+            sec = self._section_chunk(filing_id, section, content, doc.id)
             doc.child_chunk_ids.append(sec.id)
 
             texts = self._text_chunks(filing_id, section, content, sec.id)
             for t in texts:
-                self._enrich_chunk(t, context=section)
+                if not skip_enrichment:
+                    self._enrich_chunk(t, section=section)
                 sec.child_chunk_ids.append(t.id)
 
             tables = self._table_chunks(filing_id, section, content, sec.id)
             for tbl in tables:
-                self._enrich_chunk(tbl, context=section)
+                if not skip_enrichment:
+                    self._enrich_chunk(tbl, section=section)
                 sec.child_chunk_ids.append(tbl.id)
 
             chunks += [sec, *texts, *tables]
 
         return chunks
 
-    # Enrich chunks - summary, entities, relationships
+    def get_enrichable_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
+        """Return chunks that need enrichment."""
+        return [
+            c for c in chunks
+            if c.type in (ChunkType.TEXT, ChunkType.TABLE)
+        ]
 
-    def _enrich_chunk(self, chunk: Chunk, context: str) -> None:
-        """
-        Call extract_sec_data to populate summary, entities, and relationships.
-        """
-        result = extract_sec_data(chunk.content, context)
+    def _enrich_chunk(self, chunk: Chunk, section: str) -> None:
+        """Call extract_sec_data to populate summary, entities, and relationships."""
+        result = extract_sec_data(chunk.content, section)
 
         if "error" in result:
             chunk.summary = None
             return
 
-        chunk.summary       = result.get("summary")
-        chunk.entities      = result.get("entities", [])
+        chunk.summary = result.get("summary")
+        chunk.entities = result.get("entities", [])
         chunk.relationships = result.get("relationships", [])
-
-    # ------------------------------------------------------------------ #
-    # ID helpers                                                         #
-    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _slug(text: str) -> str:
@@ -138,15 +149,12 @@ class SECChunker:
 
     @staticmethod
     def _short_hash(text: str) -> str:
-        """
-        Create unique hash for the text
-        """
+        """Create unique hash for the text."""
         return hashlib.md5(text.encode()).hexdigest()[:6]
 
     def _make_id(self, chunk_type: ChunkType, filing_id: str,
                  *parts: str) -> str:
-        """
-        Produces readable, predictable IDs:
+        """Produces readable, predictable IDs:
             doc_GOOGL10K2024
             sec_GOOGL10K2024_item_1a
             txt_GOOGL10K2024_item_7_0
@@ -155,9 +163,7 @@ class SECChunker:
         segments = [chunk_type.value, filing_id] + [p for p in parts if p]
         return "_".join(segments)
 
-    # ------------------------------------------------------------------ #
-    # Level 0 – document                                                 #
-    # ------------------------------------------------------------------ #
+    # ---------------- Level 0 – document ---------------- #
 
     def _doc_chunk(self, filing_id: str, meta: Dict[str, Any]) -> Chunk:
         return Chunk(
@@ -169,14 +175,13 @@ class SECChunker:
                 f"FY {meta.get('fiscal_year')}"
             ),
             parent_id = None,
-            metadata  = {k: meta[k] for k in
-                         ("company_name", "filing_type",
-                          "fiscal_year") if k in meta},
+            metadata  = {
+                k: meta[k] for k in
+                ("company_name", "filing_type", "fiscal_year") if k in meta
+            },
         )
 
-    # ------------------------------------------------------------------ #
-    # Level 1 – sections                                                 #
-    # ------------------------------------------------------------------ #
+    # ---------------- Level 1 – sections ---------------- #
 
     def _section_chunk(self, filing_id: str, section: str,
                        content: str, parent_id: str) -> Chunk:
@@ -188,25 +193,23 @@ class SECChunker:
             content   = content[:500],   # preview only – full text lives in txt chunks
             parent_id = parent_id,
             metadata  = {
-                "char_count":   len(content),
-                "has_tables":   bool(re.search(self.TABLE_PATTERN, content)),
-                "is_risk":      "1a" in slug or "risk" in slug,
+                "char_count": len(content),
+                "has_tables": bool(re.search(self.TABLE_PATTERN, content)),
+                "is_risk": "1a" in slug or "risk" in slug,
             },
         )
 
-    # ------------------------------------------------------------------ #
-    # Level 2 – text chunks (sliding window)                             #
-    # ------------------------------------------------------------------ #
+    # ---------------- Level 2 – text chunks (sliding window) ---------------- #
 
     def _text_chunks(self, filing_id: str, section: str,
                      content: str, parent_id: str) -> List[Chunk]:
         # Strip tables so text chunks contain only prose
         prose = re.sub(self.TABLE_PATTERN, "", content).strip()
-        slug  = self._slug(section)
+        slug = self._slug(section)
 
         # Split by paragraph (one or more empty lines)
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", prose) if p.strip()]
-        windows    = self._sliding_windows(paragraphs, separator="\n\n")
+        windows = self._sliding_windows(paragraphs, separator="\n\n")
 
         return [
             Chunk(
@@ -227,12 +230,10 @@ class SECChunker:
 
         for item in items:
             item_len = len(item)
-            # Add separator length if buffer is not empty
             effective_len = item_len + (len(separator) if buf else 0)
 
             if buf_len + effective_len > self.chunk_size and buf:
                 windows.append(separator.join(buf))
-                # keep overlap tail
                 tail, tail_len = [], 0
                 for s in reversed(buf):
                     s_len = len(s)
@@ -244,7 +245,6 @@ class SECChunker:
                     else:
                         break
                 buf, buf_len = tail, tail_len
-                # Recalculate effective_len for the current item with the new buffer
                 effective_len = item_len + (len(separator) if buf else 0)
 
             buf.append(item)
@@ -254,9 +254,7 @@ class SECChunker:
             windows.append(separator.join(buf))
         return windows
 
-    # ------------------------------------------------------------------ #
-    # Level 2 – table chunks                                             #
-    # ------------------------------------------------------------------ #
+    # ---------------- Level 2 – table chunks ---------------- #
 
     def _table_chunks(self, filing_id: str, section: str,
                       content: str, parent_id: str) -> List[Chunk]:
@@ -285,9 +283,7 @@ class SECChunker:
 
         return chunks
 
-    # ------------------------------------------------------------------ #
-    # Section splitting                                                  #
-    # ------------------------------------------------------------------ #
+    # ---------------- Section splitting ---------------- #
 
     def _split_sections(self, text: str) -> Dict[str, str]:
         matches = sorted(
@@ -315,9 +311,7 @@ class SECChunker:
         return sections
 
 
-# --------------------------------------------------------------------------- #
-# Quick demo                                                                  #
-# --------------------------------------------------------------------------- #
+# --------------- Quick demo --------------- #
 if __name__ == "__main__":
     import json
     import os
