@@ -22,7 +22,7 @@ from app.llm.fin_rag_engine import FinRAGEngine
 BANNER = """
 |==========================================================|
 |          FinRAG: SEC 10-K Financial RAG Chat             |
-|      Lightrag -> Neo4j + Weaviate + BGE-M3 + Groq        |
+|      HybridRAG -> Neo4j + Weaviate + BGE-M3 + Groq       |
 |==========================================================|
 Type /help for commands, /quit to exit.
 """

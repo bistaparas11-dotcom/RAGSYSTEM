@@ -339,7 +339,7 @@ def build_ui():
         gr.HTML("""
         <div class="fin-header">
             <div class="fin-title">FinSight</div>
-            <div class="fin-subtitle">SEC 10-K · LightRAG · Neo4j · Weaviate · DeepSeek-R1 · Groq</div>
+            <div class="fin-subtitle">SEC 10-K · HybridRAG · Neo4j · Weaviate · DeepSeek-R1 · Groq</div>
         </div>
         """)
 

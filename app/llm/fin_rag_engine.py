@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional, Iterator
 
 from app.llm.groq_client import GroqClient
 from app.data.retrieval.filing_resolver import FilingResolver
-from app.data.retrieval.lightrag_retriever import LightRAGRetriever, RetrievedContext
+from app.data.retrieval.hybridrag_retriever import HybridRAGRetriever, RetrievedContext
 
 
 @dataclass
@@ -19,7 +19,7 @@ class FinRAGEngine:
     """End-to-end RAG pipeline, that maintains conversation history."""
 
     def __init__(self):
-        self.retriever = LightRAGRetriever()
+        self.retriever = HybridRAGRetriever()
         self.llm = GroqClient()
         self.resolver = FilingResolver()
         self._history: List[Dict[str, str]] = []

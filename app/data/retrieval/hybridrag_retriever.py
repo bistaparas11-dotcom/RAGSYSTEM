@@ -70,9 +70,9 @@ class RetrievedContext:
         return "\n".join(parts)
 
 
-class LightRAGRetriever:
+class HybridRAGRetriever:
     """
-    LightRAG-style hybrid retriever:
+    HybridRAG-style hybrid retriever:
       1. Dense vector search  (Weaviate)  -> top-k chunks + entities
       2. Graph traversal      (Neo4j)     -> entity context + neighbours
       3. Rerank               (Reranker)  -> keep only top relevant chunks
