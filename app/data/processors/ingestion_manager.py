@@ -88,7 +88,7 @@ class IngestionManager:
         self.pipeline._chunk_all()
 
     def enrich_all_files(self):
-        """Async batch enrichment."""
+        """Enrichment using Deepseek-R1."""
         self.pipeline.enrich_all()
 
     def ingest_all_files(self):
@@ -136,7 +136,7 @@ class IngestionManager:
         print("\n---------- Running Full Pipeline ----------")
         print("STAGE 1/3 - Structural Chunking (no LLM)")
         self.chunk_all_files()
-        print("STAGE 2/3 - Async Enrichment")
+        print("STAGE 2/3 - Enrichment via Modal Deepseek-R1")
         self.enrich_all_files()
         print("STAGE 3/3 - Ingestion (Neo4j + Weaviate)")
         self.ingest_all_files()
@@ -166,6 +166,7 @@ if __name__ == "__main__":
         # manager.download_files(companies, 2025)
         # manager.process_all_files()
         manager.run_full_pipeline()
+        # manager.status()
     finally:
         manager.close()
 
