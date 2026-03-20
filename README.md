@@ -1,6 +1,11 @@
 # FinRAG: SEC 10-K Financial RAG
 
+[![Open in Spaces](https://img.shields.io/badge/🤗-Open%20in%20Spaces-blue)](https://huggingface.co/spaces/Unspoiled-Egg/Fin-RAG)
+
 FinRAG is a hybrid RAG system specifically designed for analyzing SEC 10-K financial filings. It combines the power of knowledge graphs (Neo4j) and vector databases (Weaviate).
+
+![FinRAG on Huggingface-Space](assets/gradio.png)
+![FinRAG on CLI](assets/cli.png)
 
 ## Architecture
 
@@ -24,9 +29,9 @@ The system operates in two main phases: **Ingestion** and **Query Execution**.
 
 ### 1. Ingestion Pipeline
 1. **Download**: `SECBulkDownloader` fetches 10-K filings from SEC EDGAR.
-2. **Convert**: `process_pdf` uses PaddleOCR-VL to transform complex PDFs into clean Markdown.
+2. **Convert**: `process_pdf` uses [PaddleOCR-VL](https://huggingface.co/PaddlePaddle/PaddleOCR-VL) to transform complex PDFs into clean Markdown.
 3. **Chunk**: `FastChunkPipeline` performs structural chunking based on document headers.
-4. **Enrich**: DeepSeek-R1 analyzes each chunk on Modal to extract summary, key entities, financial metrics, and relationships.
+4. **Enrich**: [DeepSeek-R1](https://ollama.com/library/deepseek-r1:14b) analyzes each chunk on Modal to extract summary, key entities, financial metrics, and relationships.
 5. **Load**: 
    - `KnowledgeGraph` builds a multi-relational graph in Neo4j AuraDB.
    - `WeaviateIngestor` generates and stores embeddings generated using [bge-m3](https://build.nvidia.com/baai/bge-m3?snippet_tab=Python) in Weaviate.
@@ -66,5 +71,5 @@ python -m app.data.processors.ingestion_manager
 - **Reranker**: [rerank-qa-mistral-4b](https://build.nvidia.com/nvidia/rerank-qa-mistral-4b?snippet_tab=Python)
 - **Databases**: Neo4j AuraDB (Graph), Weaviate (Vector)
 - **UI**: Gradio, CLI
-- **OCR**: PaddleOCR-VL
+- **OCR**: [PaddleOCR-VL](https://huggingface.co/PaddlePaddle/PaddleOCR-VL) 
 - **Compute**: Modal, Nvidia NIM
