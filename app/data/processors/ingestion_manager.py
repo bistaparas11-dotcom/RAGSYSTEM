@@ -132,6 +132,34 @@ class IngestionManager:
         print("\nIngestion complete.")
         self.cache.print_status()
 
+    def ingest_weaviate_only(self, force: bool = False):
+        """Load cached enriched chunks, and writes ONLY to Weaviate."""
+        cached_files = self.cache.list_cached()
+        if not cached_files:
+            print("No cached chunks found in ./data/chunks")
+            return
+
+        for cache_file in sorted(cached_files):
+            if not force and self.cache.is_done(cache_file, "weaviate"):
+                print(f" - Skipping {cache_file}, already in Weaviate. (Use force=True to re-ingest)")
+                continue
+
+            print(f"Ingesting {cache_file} into Weaviate...")
+            result = self.cache.load(cache_file)
+            if not result:
+                continue
+            chunks, meta = result
+
+            try:
+                refs = self.weaviate_ingestor.ingest(chunks, meta)
+                self.cache.mark(cache_file, "weaviate")
+                print(f" [OK] Weaviate done: {len(refs)} objects upserted.")
+            except Exception as e:
+                print(f" [X] Failed Weaviate ingestion: {e}")
+
+        print("\nWeaviate-only ingestion complete.")
+        self.cache.print_status()
+
     def run_full_pipeline(self):
         print("\n---------- Running Full Pipeline ----------")
         print("STAGE 1/3 - Structural Chunking (no LLM)")
@@ -165,8 +193,9 @@ if __name__ == "__main__":
     try:
         # manager.download_files(companies, 2025)
         # manager.process_all_files()
-        manager.run_full_pipeline()
+        # manager.run_full_pipeline()
         # manager.status()
+        manager.ingest_weaviate_only(force=True)
     finally:
         manager.close()
 
