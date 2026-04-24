@@ -69,7 +69,7 @@ python -m app.data.processors.ingestion_manager
 - **LLM**: Groq API
 - **Embeddings**: [bge-m3](https://build.nvidia.com/baai/bge-m3?snippet_tab=Python)
 - **Reranker**: [rerank-qa-mistral-4b](https://build.nvidia.com/nvidia/rerank-qa-mistral-4b?snippet_tab=Python)
-- **Databases**: Neo4j AuraDB (Graph), Weaviate (Vector)
+- **Databases**: Neo4j AuraDB (Graph), Weaviate (Vector), Pinecone (Vector)
 - **UI**: Gradio, CLI
 - **OCR**: [PaddleOCR-VL](https://huggingface.co/PaddlePaddle/PaddleOCR-VL) 
 - **Compute**: Modal, Nvidia NIM
