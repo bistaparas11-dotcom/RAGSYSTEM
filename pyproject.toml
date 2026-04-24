@@ -13,6 +13,8 @@ dependencies = [
     "pymupdf>=1.27.1",
     "sec-api>=1.0.32",
     "weaviate-client>=4.20.3",
+    "pinecone-client>=5.4.2",
+    "pinecone>=8.1.2",
 ]
 
 [dependency-groups]

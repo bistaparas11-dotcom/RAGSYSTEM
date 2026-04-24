@@ -31,6 +31,7 @@ from app.data.processors.chunk_cache import ChunkCache
 from app.data.processors.fast_chunk_pipeline import FastChunkPipeline
 from app.data.storage.graph_schema import KnowledgeGraph
 from app.data.storage.weaviate_schema import WeaviateSchema, WeaviateIngestor
+from app.data.storage.pinecone_storage import PineconeIngestor
 
 
 class IngestionManager:
@@ -48,19 +49,32 @@ class IngestionManager:
             password=settings.NEO4J_PASSWORD
         )
 
-        # --- Weaviate ---
-        self.weaviate_client = weaviate.connect_to_weaviate_cloud(
-            cluster_url=settings.WEAVIATE_URL,
-            auth_credentials=Auth.api_key(settings.WEAVIATE_API_KEY),
-        )
-        WeaviateSchema(self.weaviate_client).create_schema()
-        self.weaviate_ingestor = WeaviateIngestor(
-            client=self.weaviate_client
-        )
+        # --- Weaviate (Optional) ---
+        self.weaviate_client = None
+        self.weaviate_ingestor = None
+        try:
+            if settings.WEAVIATE_URL and settings.WEAVIATE_API_KEY:
+                self.weaviate_client = weaviate.connect_to_weaviate_cloud(
+                    cluster_url=settings.WEAVIATE_URL,
+                    auth_credentials=Auth.api_key(settings.WEAVIATE_API_KEY),
+                )
+                WeaviateSchema(self.weaviate_client).create_schema()
+                self.weaviate_ingestor = WeaviateIngestor(
+                    client=self.weaviate_client
+                )
+        except Exception as e:
+            print(f" [!] Could not connect to Weaviate: {e}. Vector storage will fall back to Pinecone.")
+
+        # --- Pinecone ---
+        self.pinecone_ingestor = PineconeIngestor()
+
+        # --- Pinecone ---
+        self.pinecone_ingestor = PineconeIngestor()
 
     def close(self):
         self.knowledge_graph.close()
-        self.weaviate_client.close()
+        if self.weaviate_client:
+            self.weaviate_client.close()
 
     def download_files(self, ticker_urls, year):
         downloader = SECBulkDownloader()
@@ -118,7 +132,9 @@ class IngestionManager:
                 except Exception as e:
                     print(f" [X] Failed to build Neo4j graph: {e}")
 
-            if self.cache.is_done(cache_file, "weaviate"):
+            if not self.weaviate_ingestor:
+                print(" - Weaviate not available, skipping.")
+            elif self.cache.is_done(cache_file, "weaviate"):
                 print(f" - Weaviate ingestion already done, skipping.")
             else:
                 try:
@@ -128,6 +144,17 @@ class IngestionManager:
                     print(f" [OK] Weaviate done: {len(refs)} objects upserted.")
                 except Exception as e:
                     print(f" [X] Failed to ingest into Weaviate: {e}")
+
+            if self.cache.is_done(cache_file, "pinecone"):
+                print(f" - Pinecone ingestion already done, skipping.")
+            else:
+                try:
+                    print(" - Ingesting into Pinecone...")
+                    self.pinecone_ingestor.ingest(chunks, meta)
+                    self.cache.mark(cache_file, "pinecone")
+                    print(" [OK] Pinecone done.")
+                except Exception as e:
+                    print(f" [X] Failed to ingest into Pinecone: {e}")
 
         print("\nIngestion complete.")
         self.cache.print_status()
@@ -150,6 +177,10 @@ class IngestionManager:
                 continue
             chunks, meta = result
 
+            if not self.weaviate_ingestor:
+                print(" [X] Weaviate ingestor not initialized.")
+                continue
+
             try:
                 refs = self.weaviate_ingestor.ingest(chunks, meta)
                 self.cache.mark(cache_file, "weaviate")
@@ -158,6 +189,34 @@ class IngestionManager:
                 print(f" [X] Failed Weaviate ingestion: {e}")
 
         print("\nWeaviate-only ingestion complete.")
+        self.cache.print_status()
+
+    def ingest_pinecone_only(self, force: bool = False):
+        """Load cached enriched chunks, and writes ONLY to Pinecone."""
+        cached_files = self.cache.list_cached()
+        if not cached_files:
+            print("No cached chunks found in ./data/chunks")
+            return
+
+        for cache_file in sorted(cached_files):
+            if not force and self.cache.is_done(cache_file, "pinecone"):
+                print(f" - Skipping {cache_file}, already in Pinecone. (Use force=True to re-ingest)")
+                continue
+
+            print(f"Ingesting {cache_file} into Pinecone...")
+            result = self.cache.load(cache_file)
+            if not result:
+                continue
+            chunks, meta = result
+
+            try:
+                self.pinecone_ingestor.ingest(chunks, meta)
+                self.cache.mark(cache_file, "pinecone")
+                print(f" [OK] Pinecone done.")
+            except Exception as e:
+                print(f" [X] Failed Pinecone ingestion: {e}")
+
+        print("\nPinecone-only ingestion complete.")
         self.cache.print_status()
 
     def run_full_pipeline(self):

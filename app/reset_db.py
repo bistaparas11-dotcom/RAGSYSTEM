@@ -5,12 +5,14 @@ Run: python -m app.reset_db
 Options:
     --neo4j-only     clear only Neo4j
     --weaviate-only  clear only Weaviate
+    --pinecone-only  clear only Pinecone
     --confirm        skip confirmation prompt
 """
 import sys
 import weaviate
 from neo4j import GraphDatabase
 from weaviate.classes.init import Auth
+from pinecone import Pinecone
 
 from app.config import settings
 
@@ -103,20 +105,56 @@ def clear_weaviate(confirm: bool = False):
     client.close()
 
 
+def clear_pinecone(confirm: bool = False):
+    print("\n---------------- Pinecone ----------------")
+    pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+    index_name = settings.PINECONE_INDEX_NAME
+
+    if index_name not in pc.list_indexes().names():
+        print(f" - Index {index_name} not found, skipping.")
+        return
+
+    index = pc.Index(index_name)
+    stats = index.describe_index_stats()
+    total = stats.total_vector_count
+    print(f" - Total vectors: {total}")
+
+    if total == 0:
+        print(" - Already empty, skipping.")
+        return
+
+    if not confirm:
+        ans = input(f"\n - Delete ALL {total} vectors in {index_name}? [y/N]: ").strip().lower()
+        if ans != "y":
+            print(" - Skipped.")
+            return
+
+    print(f" - Deleting all vectors in {index_name}...")
+    index.delete(delete_all=True)
+    print(" [SUCCESS] Pinecone cleared.")
+
+
 def main():
     args        = sys.argv[1:]
     neo4j_only  = "--neo4j-only"    in args
     weaviate_only = "--weaviate-only" in args
+    pinecone_only = "--pinecone-only" in args
     confirm     = "--confirm"       in args
 
-    if not neo4j_only and not weaviate_only:
-        # Clear both
+    if not any([neo4j_only, weaviate_only, pinecone_only]):
+        # Clear all
         clear_neo4j(confirm)
-        clear_weaviate(confirm)
+        try:
+            clear_weaviate(confirm)
+        except Exception as e:
+            print(f" [!] Skipping Weaviate: {e}")
+        clear_pinecone(confirm)
     elif neo4j_only:
         clear_neo4j(confirm)
     elif weaviate_only:
         clear_weaviate(confirm)
+    elif pinecone_only:
+        clear_pinecone(confirm)
 
 
 if __name__ == "__main__":
