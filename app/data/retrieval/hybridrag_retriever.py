@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from app.config import settings
 from app.data.retrieval.reranker import Reranker
 from app.data.retrieval.graph_retriever import GraphRetriever
-from app.data.retrieval.weaviate_retriever import WeaviateRetriever
+from app.data.retrieval.pinecone_retriever import PineconeRetriever
 
 
 @dataclass
@@ -79,7 +79,7 @@ class HybridRAGRetriever:
     """
 
     def __init__(self):
-        self.vector  = WeaviateRetriever()
+        self.vector  = PineconeRetriever()
         self.graph   = GraphRetriever()
         self.reranker = Reranker(use_cross_encoder=True)
 

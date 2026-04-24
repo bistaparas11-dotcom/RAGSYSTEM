@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     NVIDIA_NIM_API: str
     WEAVIATE_URL: str
     WEAVIATE_API_KEY: str
+    PINECONE_API_KEY: str
+    PINECONE_CLOUD: str
+    PINECONE_REGION: str
+    PINECONE_INDEX_NAME: str
     MODEL: str = "llama-3.1-8b-instant"
 
     model_config = SettingsConfigDict(
