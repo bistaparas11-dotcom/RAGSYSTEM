@@ -1,6 +1,5 @@
 # FinRAG: SEC 10-K Financial RAG
 
-[![Open in Spaces](https://img.shields.io/badge/🤗-Open%20in%20Spaces-blue)](https://huggingface.co/spaces/Unspoiled-Egg/Fin-RAG)
 
 FinRAG is a hybrid RAG system specifically designed for analyzing SEC 10-K financial filings. It combines the power of knowledge graphs (Neo4j) and vector databases (Weaviate).
 
