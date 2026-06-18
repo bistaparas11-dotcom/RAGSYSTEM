@@ -1,3 +1,4 @@
+
 from pydantic import SecretStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
@@ -8,6 +9,7 @@ class Settings(BaseSettings):
     OCR_API_URL: str
     GROQ_API_KEY: str
     DEEPSEEK_API_URL: str
+    BGE_M3_URL: str
     NEO4J_URI: str
     NEO4J_USERNAME: str
     NEO4J_PASSWORD: str
